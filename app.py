@@ -7,6 +7,9 @@ from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email import encoders
 import os
+import imaplib
+import time
+from email.utils import formatdate
 
 docuseal.key = "xHPyWnY8iyRLuTG9XuRjYZWKA1tAqSAnnwKa27YzYcT"
 docuseal.url = "https://servis.sevenet.sk/api/"
@@ -14,6 +17,8 @@ docuseal.url = "https://servis.sevenet.sk/api/"
 # SMTP adatok
 SMTP_SERVER = "mail3.sevenet.sk"
 SMTP_PORT = 587
+IMAP_SERVER = "mail3.sevenet.sk"
+IMAP_PORT = 993
 SENDER_EMAIL = "faktury@sevenet.sk"
 SENDER_PASSWORD = "?,SINNEt,29"
 
@@ -55,11 +60,12 @@ def webhook():
 
 
 def send_email(pdf_path, pdf_name, recipient_email):
-    """Email küldése PDF csatolmánnyal"""
+    """Email küldése PDF csatolmánnyal és mentése a Sent mappába"""
     msg = MIMEMultipart()
     msg['From'] = SENDER_EMAIL
     msg['To'] = recipient_email
     msg['Subject'] = f'Servisny list - {pdf_name}'
+    msg['Date'] = formatdate(localtime=True)
 
     body = f"Csatolt a servisny list: {pdf_name}.pdf"
     msg.attach(MIMEText(body, 'plain'))
@@ -73,12 +79,35 @@ def send_email(pdf_path, pdf_name, recipient_email):
             part.add_header('Content-Disposition', f'attachment; filename="{pdf_name}.pdf"')
             msg.attach(part)
 
-    # SMTP kapcsolat és email küldés
+    # SMTP küldés
     server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
     server.starttls()
     server.login(SENDER_EMAIL, SENDER_PASSWORD)
     server.send_message(msg)
     server.quit()
+
+    # IMAP-on keresztül a Sent mappába mentés
+    sent_mailboxes = ['Sent', 'INBOX.Sent', 'Sent Items', 'INBOX.Sent Items']
+    saved = False
+    for mailbox in sent_mailboxes:
+        try:
+            imap = imaplib.IMAP4_SSL(IMAP_SERVER, IMAP_PORT)
+            imap.login(SENDER_EMAIL, SENDER_PASSWORD)
+            internal_date = imaplib.Time2Internaldate(time.time())
+            imap.append(mailbox, '', internal_date, msg.as_bytes())
+            imap.logout()
+            print(f"Email mentve a Sent mappába: {mailbox}")
+            saved = True
+            break
+        except Exception as e:
+            print(f"IMAP append hiba {mailbox}: {e}")
+            try:
+                imap.logout()
+            except Exception:
+                pass
+
+    if not saved:
+        print("Nem sikerült menteni az emailt a Sent mappába")
 
 if __name__ == '__main__':
     print("Webhook listener indítása a 5000-es porton...")

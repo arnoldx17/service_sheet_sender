@@ -9,7 +9,7 @@ from email import encoders
 import os
 import imaplib
 import time
-from email.utils import formatdate
+from email.utils import formatdate, formataddr
 
 docuseal.key = "xHPyWnY8iyRLuTG9XuRjYZWKA1tAqSAnnwKa27YzYcT"
 docuseal.url = "https://servis.sevenet.sk/api/"
@@ -28,33 +28,77 @@ app = Flask(__name__)
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
-    submission_id = data.get('data', {}).get('submission_id')
+    submission_data = data.get('data', {})
+    submission_id = submission_data.get('submission_id') or submission_data.get('id')
 
     email_recipient = None
-    for item in data.get('data', {}).get('values', []):
+    pdf_url = None
+    name = None
+
+    # Régi struktúra: data.values
+    for item in submission_data.get('values', []):
         if item.get('field') == 'Email':
             email_recipient = item.get('value')
             break
+
+    # Új struktúra: submitters list
+    submitters = submission_data.get('submitters', [])
+    if submitters:
+        first_submitter = submitters[0]
+        email_recipient = email_recipient or first_submitter.get('email')
+        for item in first_submitter.get('values', []):
+            if item.get('field') == 'Email':
+                email_recipient = item.get('value')
+                break
+
+        documents = first_submitter.get('documents', [])
+        if documents:
+            pdf_url = documents[0].get('url')
+            name = documents[0].get('name')
+
+    if not pdf_url:
+        documents = submission_data.get('documents', [])
+        if documents:
+            pdf_url = documents[0].get('url')
+            name = documents[0].get('name')
+
+    if not submission_id:
+        print("Nincs submission_id a webhookban")
+        return {'status': 'error', 'message': 'submission_id hiányzik'}, 400
+
+    if not pdf_url or not name:
+        print("Nincs PDF dokumentum a webhookban")
+        return {'status': 'error', 'message': 'PDF dokumentum hiányzik'}, 400
 
     response = docuseal.get_submission_documents(submission_id)
     pdf_url = response['documents'][0]['url']
     name = response['documents'][0]['name']
 
     # PDF letöltése a tmp mappába
+    os.makedirs('tmp', exist_ok=True)
     pdf_path = f'tmp/{name}.pdf'
-    subprocess.run(['wget', pdf_url, '-O', pdf_path])
+    try:
+        subprocess.run(['wget', pdf_url, '-O', pdf_path], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"PDF letöltési hiba: {e}")
+        return {'status': 'error', 'message': 'PDF letöltés sikertelen'}, 500
 
     print("Webhook kapott:", data)
     print(f"submission_id: {submission_id}")
     print(f"email: {email_recipient}")
     print(f"PDF letöltve: {pdf_path}")
 
-    # Email küldés (TESZT: akrausz@sevenet.sk)
+    recipient = email_recipient or "arnoldx17@gmail.com"
+    if not email_recipient:
+        print("Nincs Email mező az adatokban, teszt címre küldve")
+
+    # Email küldés
     try:
-        send_email(pdf_path, name, "akrausz@sevenet.sk")
+        send_email(pdf_path, name, recipient)
         print("Email sikeresen elküldve")
     except Exception as e:
         print(f"Hiba az email küldéskor: {e}")
+        return {'status': 'error', 'message': 'Email küldés sikertelen'}, 500
 
     return {'status': 'ok'}, 200
 
@@ -62,12 +106,12 @@ def webhook():
 def send_email(pdf_path, pdf_name, recipient_email):
     """Email küldése PDF csatolmánnyal és mentése a Sent mappába"""
     msg = MIMEMultipart()
-    msg['From'] = SENDER_EMAIL
+    msg['From'] = formataddr(('SEVENET s.r.o.', SENDER_EMAIL))
     msg['To'] = recipient_email
-    msg['Subject'] = f'Servisny list - {pdf_name}'
+    msg['Subject'] = f'SEVENET s.r.o. - Servisny list - {pdf_name}'
     msg['Date'] = formatdate(localtime=True)
 
-    body = f"Csatolt a servisny list: {pdf_name}.pdf"
+    body = f"{pdf_name}.pdf"
     msg.attach(MIMEText(body, 'plain'))
 
     # PDF csatolása
@@ -108,6 +152,7 @@ def send_email(pdf_path, pdf_name, recipient_email):
 
     if not saved:
         print("Nem sikerült menteni az emailt a Sent mappába")
+
 
 if __name__ == '__main__':
     print("Webhook listener indítása a 5000-es porton...")

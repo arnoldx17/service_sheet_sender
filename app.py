@@ -9,6 +9,9 @@ from email import encoders
 import os
 import imaplib
 import time
+import logging
+import sys
+from logging.handlers import RotatingFileHandler
 from email.utils import formatdate, formataddr
 
 docuseal.key = "xHPyWnY8iyRLuTG9XuRjYZWKA1tAqSAnnwKa27YzYcT"
@@ -21,6 +24,24 @@ IMAP_SERVER = "mail3.sevenet.sk"
 IMAP_PORT = 993
 SENDER_EMAIL = "faktury@sevenet.sk"
 SENDER_PASSWORD = "?,SINNEt,29"
+
+# Logger beállítása
+log_dir = 'logs'
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, 'service_sheet_sender.log')
+logger = logging.getLogger('service_sheet_sender')
+logger.setLevel(logging.INFO)
+
+# File handler
+file_handler = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=5, encoding='utf-8')
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s')
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# Console handler (stdout)
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
 
 # Flask webhook listener
 app = Flask(__name__)
@@ -63,11 +84,11 @@ def webhook():
             name = documents[0].get('name')
 
     if not submission_id:
-        print("Nincs submission_id a webhookban")
+        logger.error("Nincs submission_id a webhookban")
         return {'status': 'error', 'message': 'submission_id hiányzik'}, 400
 
     if not pdf_url or not name:
-        print("Nincs PDF dokumentum a webhookban")
+        logger.error("Nincs PDF dokumentum a webhookban")
         return {'status': 'error', 'message': 'PDF dokumentum hiányzik'}, 400
 
     response = docuseal.get_submission_documents(submission_id)
@@ -80,24 +101,24 @@ def webhook():
     try:
         subprocess.run(['wget', pdf_url, '-O', pdf_path], check=True)
     except subprocess.CalledProcessError as e:
-        print(f"PDF letöltési hiba: {e}")
+        logger.error(f"PDF letöltési hiba: {e}")
         return {'status': 'error', 'message': 'PDF letöltés sikertelen'}, 500
 
-    print("Webhook kapott:", data)
-    print(f"submission_id: {submission_id}")
-    print(f"email: {email_recipient}")
-    print(f"PDF letöltve: {pdf_path}")
+    logger.info(f"Webhook kapott: {data}")
+    logger.info(f"submission_id: {submission_id}")
+    logger.info(f"email: {email_recipient}")
+    logger.info(f"PDF letöltve: {pdf_path}")
 
     recipient = email_recipient or "arnoldx17@gmail.com"
     if not email_recipient:
-        print("Nincs Email mező az adatokban, teszt címre küldve")
+        logger.warning("Nincs Email mező az adatokban, teszt címre küldve")
 
     # Email küldés
     try:
         send_email(pdf_path, name, recipient)
-        print("Email sikeresen elküldve")
+        logger.info("Email sikeresen elküldve")
     except Exception as e:
-        print(f"Hiba az email küldéskor: {e}")
+        logger.exception(f"Hiba az email küldéskor: {e}")
         return {'status': 'error', 'message': 'Email küldés sikertelen'}, 500
 
     return {'status': 'ok'}, 200
@@ -140,20 +161,21 @@ def send_email(pdf_path, pdf_name, recipient_email):
             internal_date = imaplib.Time2Internaldate(time.time())
             imap.append(mailbox, '', internal_date, msg.as_bytes())
             imap.logout()
-            print(f"Email mentve a Sent mappába: {mailbox}")
+            logger.info(f"Email mentve a Sent mappába: {mailbox}")
             saved = True
             break
         except Exception as e:
-            print(f"IMAP append hiba {mailbox}: {e}")
+            logger.warning(f"IMAP append hiba {mailbox}: {e}")
             try:
                 imap.logout()
             except Exception:
                 pass
 
     if not saved:
-        print("Nem sikerült menteni az emailt a Sent mappába")
+        logger.warning("Nem sikerült menteni az emailt a Sent mappába")
 
 
 if __name__ == '__main__':
     print("Webhook listener indítása a 5000-es porton...")
+    logger.info("Webhook listener indítása a 5000-es porton...")
     app.run(host='0.0.0.0', port=5000, debug=False)

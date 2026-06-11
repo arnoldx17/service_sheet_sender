@@ -49,6 +49,22 @@ app = Flask(__name__)
 @app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
+    event_type = data.get('event_type')
+    
+    logger.info(f"Webhook kapott - Event type: {event_type}")
+    
+    # Event típus alapján különböző handler-ek
+    if event_type == 'submission.completed':
+        return handle_submission_completed(data)
+    elif event_type == 'submission.created':
+        return handle_submission_created(data)
+    else:
+        logger.warning(f"Ismeretlen event típus: {event_type}")
+        return {'status': 'ok'}, 200
+
+
+def handle_submission_completed(data):
+    """submission.completed event feldolgozása"""
     submission_data = data.get('data', {})
     submission_id = submission_data.get('submission_id') or submission_data.get('id')
 
@@ -104,7 +120,6 @@ def webhook():
         logger.error(f"PDF letöltési hiba: {e}")
         return {'status': 'error', 'message': 'PDF letöltés sikertelen'}, 500
 
-    logger.info(f"Webhook kapott: {data}")
     logger.info(f"submission_id: {submission_id}")
     logger.info(f"email: {email_recipient}")
     logger.info(f"PDF letöltve: {pdf_path}")
@@ -121,6 +136,13 @@ def webhook():
         logger.exception(f"Hiba az email küldéskor: {e}")
         return {'status': 'error', 'message': 'Email küldés sikertelen'}, 500
 
+    return {'status': 'ok'}, 200
+
+
+def handle_submission_created(data):
+    """submission.created event feldolgozása"""
+    # TODO: Implementáció a submission.created event feldolgozására
+    logger.info("submission.created event feldolgozása")
     return {'status': 'ok'}, 200
 
 

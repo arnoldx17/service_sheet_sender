@@ -14,16 +14,19 @@ import sys
 from logging.handlers import RotatingFileHandler
 from email.utils import formatdate, formataddr
 
-docuseal.key = "xHPyWnY8iyRLuTG9XuRjYZWKA1tAqSAnnwKa27YzYcT"
-docuseal.url = "https://servis.sevenet.sk/api/"
+from config import (
+    DOCUSEAL_KEY,
+    DOCUSEAL_URL,
+    SMTP_SERVER,
+    SMTP_PORT,
+    IMAP_SERVER,
+    IMAP_PORT,
+    SENDER_EMAIL,
+    SENDER_PASSWORD,
+)
 
-# SMTP adatok
-SMTP_SERVER = "mail3.sevenet.sk"
-SMTP_PORT = 587
-IMAP_SERVER = "mail3.sevenet.sk"
-IMAP_PORT = 993
-SENDER_EMAIL = "faktury@sevenet.sk"
-SENDER_PASSWORD = "?,SINNEt,29"
+docuseal.key = DOCUSEAL_KEY
+docuseal.url = DOCUSEAL_URL
 
 # Logger beállítása
 log_dir = 'logs'

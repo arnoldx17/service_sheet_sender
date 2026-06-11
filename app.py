@@ -1,5 +1,6 @@
 from docuseal import docuseal
 import subprocess
+import json
 from flask import Flask, request
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -68,6 +69,7 @@ def webhook():
 
 def handle_submission_completed(data):
     """submission.completed event feldolgozása"""
+    logger.info(f"Webhook data: {data}")
     submission_data = data.get('data', {})
     submission_id = submission_data.get('submission_id') or submission_data.get('id')
 
@@ -144,8 +146,40 @@ def handle_submission_completed(data):
 
 def handle_submission_created(data):
     """submission.created event feldolgozása"""
-    # TODO: Implementáció a submission.created event feldolgozására
     logger.info("submission.created event feldolgozása")
+    logger.info(f"Webhook data: {data}")
+
+    submission_data = data.get('data', {})
+    template_name = submission_data.get('template', {}).get('name')
+    submitters = submission_data.get('submitters', [])
+    submitter_email = None
+    if submitters:
+        submitter_email = submitters[0].get('email')
+
+    if not template_name or not submitter_email:
+        logger.warning("submission.created webhookból hiányoznak a szükséges adatok")
+
+    message_text = f"🛠️ Új szervizlap kiírva\n📋 Név: {template_name}\n👤 Létrehozta: {submitter_email}\n🔗 servis.sevenet.sk"
+
+    # A megadott curl script Pythonból subprocess-szel
+    curl_command = [
+        'curl',
+        '-X', 'POST',
+        '-u', 'sevenetbot:j23sy-yA28P-oqH9w-SirXP-FDrkw',
+        '-H', 'OCS-APIRequest: true',
+        '-H', 'Accept: application/json',
+        '-H', 'Content-Type: application/json',
+        '-d', json.dumps({'message': message_text}),
+        'https://cloud.sevenet.sk/ocs/v2.php/apps/spreed/api/v1/chat/53ixg5u5',
+    ]
+
+    try:
+        subprocess.run(curl_command, check=True)
+        logger.info("submission.created chat üzenet sikeresen elküldve")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Hiba a chat üzenet küldésekor: {e}")
+        return {'status': 'error', 'message': 'Chat üzenet küldése sikertelen'}, 500
+
     return {'status': 'ok'}, 200
 
 

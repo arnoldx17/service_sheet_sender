@@ -14,6 +14,7 @@ import logging
 import sys
 from logging.handlers import RotatingFileHandler
 from email.utils import formatdate, formataddr
+import requests
 
 from config import (
     DOCUSEAL_KEY,
@@ -24,6 +25,8 @@ from config import (
     IMAP_PORT,
     SENDER_EMAIL,
     SENDER_PASSWORD,
+    SPLYNX_HOST,
+    SPLYNX_AUTH
 )
 
 docuseal.key = DOCUSEAL_KEY
@@ -68,14 +71,14 @@ def webhook():
 
 
 def handle_submission_completed(data):
-    """submission.completed event feldolgozása"""
+
     logger.info(f"Webhook data: {data}")
+
     submission_data = data.get('data', {})
     submission_id = submission_data.get('submission_id') or submission_data.get('id')
 
     email_recipient = None
-    pdf_url = None
-    name = None
+    portal_id = None
 
     # Régi struktúra: data.values
     for item in submission_data.get('values', []):
@@ -87,34 +90,25 @@ def handle_submission_completed(data):
     submitters = submission_data.get('submitters', [])
     if submitters:
         first_submitter = submitters[0]
-        email_recipient = email_recipient or first_submitter.get('email')
         for item in first_submitter.get('values', []):
             if item.get('field') == 'Email':
-                email_recipient = item.get('value')
-                break
+                email_recipient = item.get('value')              
+            if item.get('field') == 'Portal ID':
+                portal_id = item.get('value')
 
-        documents = first_submitter.get('documents', [])
-        if documents:
-            pdf_url = documents[0].get('url')
-            name = documents[0].get('name')
-
-    if not pdf_url:
-        documents = submission_data.get('documents', [])
-        if documents:
-            pdf_url = documents[0].get('url')
-            name = documents[0].get('name')
-
-    if not submission_id:
-        logger.error("Nincs submission_id a webhookban")
-        return {'status': 'error', 'message': 'submission_id hiányzik'}, 400
-
-    if not pdf_url or not name:
-        logger.error("Nincs PDF dokumentum a webhookban")
-        return {'status': 'error', 'message': 'PDF dokumentum hiányzik'}, 400
-
+    #Lekérjük a docuseal API-tól a dokumentum URL-jét és nevét
     response = docuseal.get_submission_documents(submission_id)
     pdf_url = response['documents'][0]['url']
     name = response['documents'][0]['name']
+
+    logger.info(
+        f"PDF URL: {pdf_url}, PDF Name: {name}, "
+        f"Email: {email_recipient}, Portal ID: {portal_id}"
+    )
+
+    if not pdf_url or not name:
+        logger.error(f"A dokumentumból hiányzik az URL vagy a név: {submission_id}")
+        return {'status': 'error', 'message': 'Hiányos PDF dokumentum'}, 400
 
     # PDF letöltése a tmp mappába
     os.makedirs('tmp', exist_ok=True)
@@ -128,6 +122,10 @@ def handle_submission_completed(data):
     logger.info(f"submission_id: {submission_id}")
     logger.info(f"email: {email_recipient}")
     logger.info(f"PDF letöltve: {pdf_path}")
+
+    #Feltöltjük a PDF-et a Splynx-be
+    if portal_id is not None:
+        upload_servisny_list_to_splynx(portal_id, name, pdf_path)
 
     recipient = email_recipient or "arnoldx17@gmail.com"
     if not email_recipient:
@@ -234,6 +232,71 @@ def send_email(pdf_path, pdf_name, recipient_email):
     if not saved:
         logger.warning("Nem sikerült menteni az emailt a Sent mappába")
 
+def upload_servisny_list_to_splynx(portal_id, pdf_name, pdf_path):
+    try:
+        # 1. Üres dokumentum rekord létrehozása a Splynx-ben
+        doc_init_url = f"https://{SPLYNX_HOST}/api/2.0/admin/customers/customer-documents"
+        doc_init_payload = {
+            "customer_id": portal_id,
+            "type": "uploaded",
+            "title": pdf_name,
+            "description": "Servisný list",
+            "visible_by_customer": "1",
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": SPLYNX_AUTH
+        }
+
+        response = requests.post(
+            doc_init_url,
+            headers=headers,
+            json=doc_init_payload,
+            timeout=15
+        )
+        response.raise_for_status()
+        
+        splynx_document_id = response.json().get('id')
+        if not splynx_document_id:
+            raise ValueError("A Splynx válasza nem tartalmazott dokumentum ID-t.")
+
+        logger.info(f"Splynx újonnan létrehozott dokumentum ID: {splynx_document_id}")
+
+        # 2. A PDF fájl megnyitása és feltöltése
+        upload_url = f"https://{SPLYNX_HOST}/api/2.0/admin/customers/customer-documents/{splynx_document_id}--upload"
+        upload_headers = {
+            "Authorization": SPLYNX_AUTH
+        }
+
+        with open(pdf_path, "rb") as f:
+            files = {
+                "file": (pdf_name, f, "application/pdf")
+            }
+
+            upload_response = requests.post(
+                upload_url,
+                headers=upload_headers,
+                files=files,
+                timeout=60
+            )
+
+        upload_response.raise_for_status()
+        
+        logger.info(f"Splynx feltöltés sikeres. Status: {upload_response.status_code}")
+
+    except FileNotFoundError:
+        logger.error(f"A megadott PDF fájl nem található a megadott útvonalon: {pdf_path}")
+        raise
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Hálózati / HTTP hiba történt a Splynx kommunikáció során: {str(e)}")
+        if getattr(e, 'response', None) is not None:
+            logger.error(f"Splynx hiba válasz: {e.response.text}")
+        raise RuntimeError(f"Splynx feltöltési hiba: {str(e)}") from e
+
+    except Exception as e:
+        logger.error(f"Váratlan hiba történt a feltöltés közben: {str(e)}")
+        raise
 
 if __name__ == '__main__':
     print("Webhook listener indítása a 5000-es porton...")

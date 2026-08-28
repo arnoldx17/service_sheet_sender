@@ -150,6 +150,7 @@ def handle_submission_created(data):
     logger.info(f"Webhook data: {data}")
 
     submission_data = data.get('data', {})
+    submission_id = submission_data.get('submission_id') or submission_data.get('id')
     template_name = submission_data.get('template', {}).get('name')
     submitters = submission_data.get('submitters', [])
     submitter_email = None
@@ -159,7 +160,7 @@ def handle_submission_created(data):
     if not template_name or not submitter_email:
         logger.warning("submission.created webhookból hiányoznak a szükséges adatok")
 
-    message_text = f"🛠️ Új szervizlap kiírva\n📋 Név: {template_name}\n👤 Létrehozta: {submitter_email}\n🔗 servis.sevenet.sk"
+    message_text = f"🛠️ Új szervizlap létrehozva\n📋 Név: {template_name}\n👤 Létrehozta: {submitter_email}\n🔗 https://servis.sevenet.sk/submissions/{submission_id}"
 
     # A megadott curl script Pythonból subprocess-szel
     curl_command = [
@@ -188,10 +189,10 @@ def send_email(pdf_path, pdf_name, recipient_email):
     msg = MIMEMultipart()
     msg['From'] = formataddr(('SEVENET s.r.o.', SENDER_EMAIL))
     msg['To'] = recipient_email
-    msg['Subject'] = f'SEVENET s.r.o. - Servisny list - {pdf_name}'
+    msg['Subject'] = f'SEVENET s.r.o. - Servisný list - {pdf_name}'
     msg['Date'] = formatdate(localtime=True)
 
-    body = f"{pdf_name}.pdf"
+    body = f"Dobrý deň,\n\n v prílohe Vám zasielame podpísaný servisný list z vykonaného servisného zásahu.\n\n Ak ste boli s našimi službami a prácou našich technikov spokojní, budeme Vám veľmi vďační, ak si nájdete chvíľku a ohodnotíte nás na Google. Vaša spätná väzba je pre nás nesmierne dôležitá.\n Link: https://g.page/r/CfC2Gk1aicCAEBM/review\n\n Ďakujeme, že využívate naše služby.\n\n S pozdravom,\n SEVENET s.r.o.\n Úzka ulica 1623/7\n Štúrovo\n 943 01\n\n"
     msg.attach(MIMEText(body, 'plain'))
 
     # PDF csatolása

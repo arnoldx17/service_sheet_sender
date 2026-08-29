@@ -13,8 +13,8 @@ Kövesd az alábbi lépéseket a projekt helyi futtatásához egy `git clone` ut
 
 ### 1. Tároló klónozása
 ```bash
-git clone <REPOSITORY_URL>
-cd <PROJEKT_MAPPA>
+git clone https://github.com/arnoldx17/service_sheet_sender.git
+cd service_sheet_sender
 ```
 
 ---

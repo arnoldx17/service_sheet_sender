@@ -26,7 +26,9 @@ from config import (
     SENDER_EMAIL,
     SENDER_PASSWORD,
     SPLYNX_HOST,
-    SPLYNX_AUTH
+    SPLYNX_AUTH,
+    NEXTCLOUD_AUTH,
+    NEXTCLOUD_CHAT_LINK
 )
 
 docuseal.key = DOCUSEAL_KEY
@@ -101,6 +103,9 @@ def handle_submission_completed(data):
     pdf_url = response['documents'][0]['url']
     name = response['documents'][0]['name']
 
+    logger.info(f"PDF URL: {pdf_url}")
+    logger.info(f"PDF Name: {name}")
+
     logger.info(
         f"PDF URL: {pdf_url}, PDF Name: {name}, "
         f"Email: {email_recipient}, Portal ID: {portal_id}"
@@ -120,7 +125,6 @@ def handle_submission_completed(data):
         return {'status': 'error', 'message': 'PDF letöltés sikertelen'}, 500
 
     logger.info(f"submission_id: {submission_id}")
-    logger.info(f"email: {email_recipient}")
     logger.info(f"PDF letöltve: {pdf_path}")
 
     #Feltöltjük a PDF-et a Splynx-be
@@ -164,12 +168,12 @@ def handle_submission_created(data):
     curl_command = [
         'curl',
         '-X', 'POST',
-        '-u', 'sevenetbot:j23sy-yA28P-oqH9w-SirXP-FDrkw',
+        '-u', NEXTCLOUD_AUTH,
         '-H', 'OCS-APIRequest: true',
         '-H', 'Accept: application/json',
         '-H', 'Content-Type: application/json',
         '-d', json.dumps({'message': message_text}),
-        'https://cloud.sevenet.sk/ocs/v2.php/apps/spreed/api/v1/chat/53ixg5u5',
+        NEXTCLOUD_CHAT_LINK,
     ]
 
     try:
